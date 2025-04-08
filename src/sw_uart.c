@@ -38,17 +38,14 @@ int uart_start(UartDevice* dev, bool canonical) {
         return -EBADF;
     }
 
-
     fcntl(fd, F_SETFL, 0);
 
-    selfLog ("Malloc TTY");
     tty = malloc(sizeof(*tty));
     if (!tty) {
         selfLog("Failed to allocate UART TTY instance");
         return -ENOMEM;
     }
 
-    selfLog ("Memset TTY");
     memset(tty, 0, sizeof(*tty));
 
     /*
@@ -81,17 +78,17 @@ int uart_start(UartDevice* dev, bool canonical) {
     /*
     * Flush port.
     */
-    selfLog ("Flush port");
-    tcflush(fd, TCIFLUSH);
+    if (tcflush(fd, TCIFLUSH) < 0) {
+        selfLog("Error(%d) flushing port: %m", errno);
+    }
 
     /*
     * Apply attributes.
     */
-    selfLog ("Set port attr");
     rc = tcsetattr(fd, TCSANOW, tty);
     if (rc) {
-        printf("%s: failed to set attributes\r\n", __func__);
-        return rc;
+        selfLog("Failed(%d) to set attributes: %m", errno);
+        return -ENODEV;
     }
 
     dev->fd = fd;
@@ -115,7 +112,7 @@ int uart_reads(UartDevice* dev, char *buf, size_t buf_len) {
 
     rc = read(dev->fd, buf, buf_len - 1);
     if (rc < 0) {
-        printf("%s: failed to read uart data\r\n", __func__);
+        selfLog("Failed(%d) to read uart data: %m", errno);
         return rc;
     }
 

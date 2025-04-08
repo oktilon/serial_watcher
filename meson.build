@@ -15,7 +15,7 @@ conf_data.set('version_major',      version_arr[0])
 conf_data.set('version_minor',      version_arr[1])
 conf_data.set('version_rev',        version_arr[2])
 # conf_data.set('prj_name',           prj_name)
-conf_data.set('log_file',           '/var/log/' + prj_name + '-%V')
+conf_data.set('log_file',           '/var/log/' + prj_name + '/week')
 
 
 # Dependencies

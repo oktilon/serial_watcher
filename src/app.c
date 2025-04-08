@@ -15,8 +15,11 @@
 
 #include "app.h"
 #include "sw_uart.h"
-#define  WEEK_SZ            8
-#define  BUFF_SZ            2048
+#define  TIME_SZ            32
+#define  BUFF_SZ            256
+#define  PATH_SZ            1024
+#define  NAME_SZ            PATH_SZ - TIME_SZ - 1
+#define  TEXT_SZ            2048
 
 typedef struct queueItemStr {
     const char *msg;
@@ -27,10 +30,13 @@ typedef struct queueItemStr {
 UartDevice  gDev                = {};
 FILE       *gLogHandle          = NULL;
 int         gCurWeek            = -1;
-char        gLogName[PATH_SZ]   = "";
-char        buff[BUFF_SZ + 1]   = "";
+char        gLogTime[TIME_SZ]   = "";
+char        gLogName[NAME_SZ]   = "";
+char        gBuff[BUFF_SZ]      = "";
+char        gText[TEXT_SZ]      = "";
+size_t      gLen                = 0;
 queueItem  *gQueue              = NULL;
-int         gSys                = 0;
+int         gState              = 0;
 
 // Long command line options
 const struct option longOptions[] = {
@@ -43,8 +49,8 @@ void on_terminate (int sig) {
     uart_stop (&gDev);
     if (gLogHandle)
         fclose(gLogHandle);
-    printf("Exit by signal: %d\n", sig);
-    exit (-2);
+    printf("\nExit by signal: %d\n", sig);
+    exit (-EINTR);
 }
 
 void queue_add (const char *msg) {
@@ -70,6 +76,27 @@ const char * queue_get () {
     return ret;
 }
 
+bool selfLogCheckTime () {
+    // Static buffer
+    static char buf[TIME_SZ] = {0};
+    // Variables
+    time_t t;
+    struct tm *pt;
+
+    t = time (NULL);
+    pt = localtime (&t);
+    // Week-number %V
+    // Day-number %j
+    strftime (buf, TIME_SZ, "%V", pt);
+
+    if (strcmp(buf, gLogTime) != 0) {
+        strncpy(gLogTime, buf, TIME_SZ);
+        return true;
+    }
+
+    return false;
+}
+
 const char * selfLogTimestamp () {
     // Static buffer
     static char buf[60] = {0};
@@ -92,6 +119,19 @@ const char * selfLogTimestamp () {
     return buf;
 }
 
+bool selfLogOpen () {
+    char path[PATH_SZ];
+
+    if (gLogHandle) {
+        fclose (gLogHandle);
+        gLogHandle = NULL;
+    }
+
+    snprintf(path, PATH_SZ, "%s-%s", gLogName, gLogTime);
+    gLogHandle = fopen(path, "a");
+
+    return gLogHandle != NULL;
+}
 
 /**
  * @brief Logging main body
@@ -113,6 +153,11 @@ void selfLog (const char* fmt, ...) {
 
     // Output log
     printf ("%s: %s\n", tms, msg);
+
+    if (selfLogCheckTime()) {
+        selfLogOpen ();
+    }
+
     if (gLogHandle) {
         fprintf (gLogHandle, "%s: %s\n", tms, msg);
         fflush(gLogHandle);
@@ -136,11 +181,11 @@ void app_parse_arguments (int argc, char **argv) {
     while ((i = getopt_long (argc, argv, "d:l:b:", longOptions, NULL)) != -1) {
         switch (i) {
             case 'd': // device
-                snprintf(gDev.filename, PATH_SZ, "%s", optarg);
+                snprintf(gDev.filename, DEV_SZ, "%s", optarg);
                 break;
 
             case 'l': // log
-                snprintf(gLogName, PATH_SZ, "%s", optarg);
+                snprintf(gLogName, NAME_SZ, "%s", optarg);
                 break;
 
             case 'b': // baud
@@ -154,52 +199,72 @@ void app_parse_arguments (int argc, char **argv) {
     }
 }
 
-void analyze (const char *txt) {
-    // selfLog (txt);
-    if(strstr(txt, "emak login:")) {
-        queue_add ("defigo\r\n");
-        gSys = 1;
+const char * analyze () {
+    if(strstr(gText, "emak login:")) {
+        gState = 1;
+        return "defigo\n";
     }
 
-    if(strstr(txt, "orangepi3b login:")) {
-        queue_add ("joy\r\n");
-        gSys = 2;
+    if(strstr(gText, "orangepi3b login:")) {
+        gState = 2;
+        return "joy\n";
     }
 
-    if(strstr(txt, "Password:")) {
-        if (gSys == 2) {
-            queue_add ("joipaw\r\n");
+    if(strstr(gText, "Password:")) {
+        if (gState == 2) {
+            gState = 0;
+            return "joipaw\n";
         } else {
-            queue_add ("defigo\r\n");
-        }
-        gSys = 0;
-    }
-
-    if(strstr(txt, "defigo@emak:~$")) {
-        if (gSys == 0) {
-            queue_add ("tail -f logs/access.log\r\n");
-            gSys = 100;
+            gState = 0;
+            return "defigo\n";
         }
     }
 
+    if(strstr(gText, "defigo@emak:~$")) {
+        switch (gState) {
+            case 0:
+                gState = 10;
+                return "ip a\n";
 
-    if(strstr(txt, "joy@orangepi3b:~$")) {
-        if (gSys == 0) {
-            queue_add ("ls -la\r\n");
-            gSys = 100;
+            case 10:
+                gState = 11;
+                return "sudo tail -f /var/log/syslog\n";
         }
     }
+
+    if(strstr(gText, "joy@orangepi3b:~$")) {
+        switch (gState) {
+            case 0:
+                gState = 10;
+                return "ip a\n";
+
+            case 10:
+                gState = 11;
+                return "sudo tail -f /var/log/syslog\n";
+        }
+    }
+
+    if(strstr(gText, "[sudo] password for defigo:")) {
+        return "defigo\n";
+    }
+
+    if(strstr(gText, "[sudo] password for joy:")) {
+        return "joipaw\n";
+    }
+
+    return NULL;
+}
+
+void dump () {
+    selfLog(gText);
+    memset (gText, 0, TEXT_SZ);
+    gLen = 0;
 }
 
 int main (int argc, char **argv) {
-    size_t rd, ln;
-    char week[WEEK_SZ] = "";
-    const char *next;
-    time_t t = time(NULL);
-    struct tm* ptm = localtime(&t);
-    char bytes[64];
-    char text[17];
-    char byte[3];
+    char c;
+    size_t rd;
+    const char *ret;
 
     signal (SIGTERM, on_terminate);
     signal (SIGKILL, on_terminate);
@@ -207,84 +272,60 @@ int main (int argc, char **argv) {
     signal (SIGSTOP, on_terminate);
     signal (SIGINT, on_terminate);
 
-    strftime(week, WEEK_SZ, "%V", ptm);
-    strftime(gLogName, PATH_SZ, LOG_FILENAME, ptm);
-    gCurWeek = atoi(week);
+    memset (gText, 0, TEXT_SZ);
+
+
+    snprintf(gLogName, NAME_SZ, "%s", LOG_FILENAME);
     // UART
-    snprintf(gDev.filename, PATH_SZ, "%s", "/dev/ttyAMA3");
+    snprintf(gDev.filename, DEV_SZ, "%s", "/dev/ttyAMA3");
     gDev.rate = B115200;
 
     app_parse_arguments (argc, argv);
 
     if (!gDev.rate) {
-        selfLog ("Unsupported rate %d", gDev.num_rate);
+        selfLog ("ERROR: Unsupported rate %d", gDev.num_rate);
         return -EINVAL;
     }
 
-    gLogHandle = fopen (gLogName, "a");
-    if (!gLogHandle) {
-        selfLog ("Openlog error(%d): %m", errno);
+    selfLogCheckTime ();
+    if(!selfLogOpen ()) {
+        selfLog ("ERROR: Openlog error(%d): %m", errno);
         return -EBADF;
     }
 
-    selfLog ("Watcher v.%s started [%s, %d, %s]", VERSION_STR, gDev.filename, gDev.rate, gLogName);
+    selfLog ("Watcher v.%s started [%s, %d, %s-%s]", VERSION_STR, gDev.filename, gDev.rate, gLogName, gLogTime);
 
-    selfLog ("Init uart");
     if (uart_start(&gDev, false) < 0) {
-        selfLog ("Init error");
-        return -1;
+        selfLog ("ERROR: Init UART error");
+        return -EACCES;
     }
 
-    selfLog ("Start loop");
     while (1)  {
-        memset (buff, 0, BUFF_SZ + 1);
-        rd = uart_reads(&gDev, buff, BUFF_SZ);
+        rd = uart_reads(&gDev, gBuff, BUFF_SZ);
         if (rd > 0) {
-            selfLog (">> %d bytes:", rd);
-            analyze (buff);
-            next = buff;
-            while (rd > 0) {
-                memset(bytes, 0, 64);
-                memset(text, 0, 17);
-                for (int i = 0; i < 16; i++) {
-                    char c = rd ? next[i] : 0;
-                    sprintf (byte, "%02X", c);
+            for(int i = 0; i < rd; i++) {
+                c = gBuff[i];
+                switch (c) {
+                    case '\r':
+                        break;
 
-                    if (i && ((i%4) == 0))
-                        strcat(bytes, " ");
+                    case '\n':
+                    case 0:
+                        dump ();
+                        break;
 
-                    strcat(bytes, byte);
-                    text[i] = c >= ' ' ? c : '.';
-
-                    if (rd) rd--;
+                    default:
+                        gText[gLen++] = c;
+                        break;
                 }
-                strcat(bytes, "  ");
-                strcat(bytes, text);
-
-                selfLog (bytes);
-                if (rd) next += 16;
             }
-            // for(int i = 0; i < rd; i++) {
-            //     if (buff[i] == '\r' || buff[i] == '\n' || buff[i] == 0) {
-            //         if (buff[i] == '\r')
-            //             ln++;
-            //         buff[i] = 0;
-            //         selfLog ("=== clear");
-            //         if (ln)
-            //             analyze (next);
-            //         ln = 0;
-            //         next = buff + i + 1;
-            //     } else {
-            //         ln++;
-            //     }
-            // }
-            // if (ln) {
-            //     selfLog ("only %d byte", rd);
-            //     analyze (next);
-            // }
+            ret = analyze ();
 
-            while ((next = queue_get())) {
-                uart_writes (&gDev, next);
+            if (ret) {
+                if (gLen) {
+                    dump ();
+                }
+                uart_writes (&gDev, ret);
             }
         }
     }

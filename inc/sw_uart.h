@@ -5,7 +5,7 @@
 #ifndef INC_SW_UART_H_
 #define INC_SW_UART_H_
 
-#define  PATH_SZ            1024
+#define  DEV_SZ            32
 
 typedef struct ValidRateStr {
     int num;
@@ -13,7 +13,7 @@ typedef struct ValidRateStr {
 } ValidRate;
 
 typedef struct UartDeviceStr {
-    char filename[PATH_SZ];
+    char filename[DEV_SZ];
     int rate;
     int num_rate;
 
