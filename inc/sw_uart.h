@@ -23,8 +23,8 @@ typedef struct UartDeviceStr {
 
 int uart_start(UartDevice *dev, bool canonical);
 void uart_stop(UartDevice *dev);
-int uart_writen(UartDevice *dev, char *buf, size_t buf_len);
-int uart_writes(UartDevice *dev, char *str);
+int uart_writen(UartDevice *dev, const char *buf, size_t buf_len);
+int uart_writes(UartDevice *dev, const char *str);
 int uart_reads(UartDevice *dev, char *buf, size_t buf_len);
 int uart_rate_is_valid(int num);
 

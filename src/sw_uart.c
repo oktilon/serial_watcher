@@ -32,12 +32,14 @@ int uart_start(UartDevice* dev, bool canonical) {
     int fd;
     int rc;
 
-    selfLog ("Open port [%s]", dev->filename);
-    fd = open(dev->filename, O_RDWR | O_NOCTTY);
+    fd = open(dev->filename, O_RDWR | O_NOCTTY | O_NONBLOCK);
     if (fd < 0) {
-        selfLog("Failed to open UART device");
+        selfLog("Failed(%d) to open UART device: %m", errno);
         return -EBADF;
     }
+
+
+    fcntl(fd, F_SETFL, 0);
 
     selfLog ("Malloc TTY");
     tty = malloc(sizeof(*tty));
@@ -131,7 +133,7 @@ int uart_reads(UartDevice* dev, char *buf, size_t buf_len) {
  * @return - number of bytes written if the write procedure succeeded
  *         - negative if the write procedure failed
  */
-int uart_writen(UartDevice* dev, char *buf, size_t buf_len) {
+int uart_writen(UartDevice* dev, const char *buf, size_t buf_len) {
     return write(dev->fd, buf, buf_len);
 }
 
@@ -144,7 +146,7 @@ int uart_writen(UartDevice* dev, char *buf, size_t buf_len) {
  * @return - number of bytes written if the write procedure succeeded
  *         - negative if the write procedure failed
  */
-int uart_writes(UartDevice* dev, char *string) {
+int uart_writes(UartDevice* dev, const char *string) {
     size_t len = strlen(string);
     return uart_writen(dev, string, len);
 }
@@ -156,6 +158,7 @@ int uart_writes(UartDevice* dev, char *string) {
  */
 void uart_stop(UartDevice* dev) {
     free(dev->tty);
+    close(dev->fd);
 }
 
 ValidRate validRates[] = {
