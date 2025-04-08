@@ -228,7 +228,7 @@ const char * analyze () {
 
             case 10:
                 gState = 11;
-                return "sudo tail -f /var/log/syslog\n";
+                return "sudo tail -F /var/log/syslog logs/access.log\n";
         }
     }
 
