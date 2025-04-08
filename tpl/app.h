@@ -17,8 +17,18 @@
 #define VERSION_REV         @version_rev@
 #define VERSION_STR         "@version_major@.@version_minor@.@version_rev@"
 
-// File locations
+
 #define LOG_FILENAME        "@log_file@"
+#define HOST                "@host@"
+#define USER                "@user@"
+#define PASS                "@pass@"
+#define COMMAND             "@cmd@"
+
+
+#define STR_LOGIN           HOST " login:"
+#define STR_PROMPT          USER "@" HOST ":~$"
+#define STR_SUDO            "[sudo] password for " USER ":"
+
 
 void selfLog (const char* fmt, ...);
 

@@ -9,13 +9,23 @@ project(
 version_arr = meson.project_version().split('.')
 prj_name = meson.project_name()
 
+sysPath = get_option('log_folder')
+sysHost = get_option('host')
+sysUser = get_option('user')
+sysPass = get_option('pass')
+sysCnd = get_option('cmd')
+
 # Project configuration
 conf_data = configuration_data()
 conf_data.set('version_major',      version_arr[0])
 conf_data.set('version_minor',      version_arr[1])
 conf_data.set('version_rev',        version_arr[2])
 # conf_data.set('prj_name',           prj_name)
-conf_data.set('log_file',           '/var/log/' + prj_name + '/week')
+conf_data.set('log_file',   sysPath + 'week')
+conf_data.set('host',       sysHost)
+conf_data.set('user',       sysUser)
+conf_data.set('pass',       sysPass)
+conf_data.set('cmd',        sysCmd)
 
 
 # Dependencies

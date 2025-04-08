@@ -1,0 +1,5 @@
+option('host', type : 'string', value : 'rpi', description: 'Board hostname')
+option('user', type : 'string', value : 'rpi', description: 'Board user to login')
+option('pass', type : 'string', value : 'rpi', description: 'Board user password to login')
+option('log_folder', type : 'string', value : '/var/log/swatcher/', description: 'Log files folder')
+option('cmd', type : 'string', value : 'sudo tail -f /var/log/syslog', description: 'Command to monitor')

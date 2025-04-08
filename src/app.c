@@ -20,11 +20,21 @@
 #define  PATH_SZ            1024
 #define  NAME_SZ            PATH_SZ - TIME_SZ - 1
 #define  TEXT_SZ            32768
+#define  DIAG_SZ            128
+#define  DIAG_TX            24
 
 typedef struct queueItemStr {
     const char *msg;
     struct queueItemStr *next;
 } queueItem;
+
+typedef enum StateEnum {
+    STATE_NONE,
+    STATE_LOGIN,
+    STATE_PASS,
+    STATE_IP,
+    STATE_COMMAND
+} State;
 
 
 UartDevice  gDev                = {};
@@ -36,13 +46,15 @@ char        gBuff[BUFF_SZ]      = "";
 char        gText[TEXT_SZ]      = "";
 size_t      gLen                = 0;
 queueItem  *gQueue              = NULL;
-int         gState              = 0;
+State       gState              = STATE_NONE;
+bool        gDiagnostic         = false;
 
 // Long command line options
 const struct option longOptions[] = {
     {"device",          required_argument,  0,  'd'},
     {"baud",            required_argument,  0,  'b'},
     {"log",             required_argument,  0,  'l'}
+    {"diagnostic",      no_argument,        0,  'x'}
 };
 
 void on_terminate (int sig) {
@@ -193,6 +205,10 @@ void app_parse_arguments (int argc, char **argv) {
                 gDev.rate = uart_rate_is_valid (gDev.num_rate);
                 break;
 
+            case 'x': // diagnostic
+                gDiagnostic = true;
+                break;
+
             default:
                 break;
         }
@@ -200,56 +216,32 @@ void app_parse_arguments (int argc, char **argv) {
 }
 
 const char * analyze () {
-    if(strstr(gText, "emak login:")) {
-        gState = 1;
-        return "defigo\n";
-    }
-
-    if(strstr(gText, "orangepi3b login:")) {
-        gState = 2;
-        return "joy\n";
+    if(strstr(gText, STR_LOGIN)) {
+        gState = STATE_LOGIN;
+        return  USER "\n";
     }
 
     if(strstr(gText, "Password:")) {
-        if (gState == 2) {
-            gState = 0;
-            return "joipaw\n";
-        } else {
-            gState = 0;
-            return "defigo\n";
+        if (gState == STATE_LOGIN) {
+            gState = STATE_PASS;
+            return PASS "\n";
         }
     }
 
-    if(strstr(gText, "defigo@emak:~$")) {
+    if(strstr(gText, STR_PROMPT)) {
         switch (gState) {
-            case 0:
-                gState = 10;
+            case STATE_PASS:
+                gState = STATE_IP;
                 return "ip a\n";
 
-            case 10:
-                gState = 11;
-                return "sudo tail -F /var/log/syslog logs/access.log\n";
+            case STATE_IP:
+                gState = STATE_COMMAND;
+                return COMMAND "\n";
         }
     }
 
-    if(strstr(gText, "joy@orangepi3b:~$")) {
-        switch (gState) {
-            case 0:
-                gState = 10;
-                return "ip a\n";
-
-            case 10:
-                gState = 11;
-                return "sudo tail -f /var/log/syslog\n";
-        }
-    }
-
-    if(strstr(gText, "[sudo] password for defigo:")) {
-        return "defigo\n";
-    }
-
-    if(strstr(gText, "[sudo] password for joy:")) {
-        return "joipaw\n";
+    if(strstr(gText, STR_SUDO)) {
+        return PASS "\n";
     }
 
     return NULL;
@@ -265,6 +257,10 @@ int main (int argc, char **argv) {
     char c;
     size_t rd;
     const char *ret;
+    char *next;
+    char bytes[DIAG_SZ];
+    char text[DIAG_TX];
+    char byte[8];
 
     signal (SIGTERM, on_terminate);
     signal (SIGKILL, on_terminate);
@@ -303,24 +299,57 @@ int main (int argc, char **argv) {
     while (1)  {
         rd = uart_reads(&gDev, gBuff, BUFF_SZ);
         if (rd > 0) {
-            for(int i = 0; i < rd; i++) {
-                c = gBuff[i];
-                switch (c) {
-                    case '\r':
-                        break;
+            if (gDiagnostic) {
+                selfLog (">> %d bytes:", rd);
+                strncpy (gText, gBuff, rd);
+                gLen = 0;
+                next = gBuff;
+                while (rd > 0) {
+                    memset(bytes, 0, DIAG_SZ);
+                    memset(text, 0, DIAG_TX);
+                    for (int i = 0; i < 16; i++) {
+                        char c = rd ? next[i] : 0;
+                        if (rd) {
+                            sprintf (byte, " %02X", c);
+                        } else {
+                            sprintf (byte, "   ");
+                        }
 
-                    case '\n':
-                    case 0:
-                        dump ();
-                        break;
+                        if (i && ((i%8) == 0))
+                            strcat(bytes, " ");
 
-                    default:
-                        gText[gLen++] = c;
-                        break;
+                        strcat(bytes, byte);
+                        text[i] = c >= ' ' ? c : (rd ? '.' : ' ');
+
+                        if (rd) rd--;
+                    }
+                    strcat(bytes, "  |");
+                    strcat(bytes, text);
+                    strcat(bytes, "|");
+
+                    selfLog (bytes);
+                    if (rd) next += 16;
                 }
+            } else {
+                for(int i = 0; i < rd; i++) {
+                    c = gBuff[i];
+                    switch (c) {
+                        case '\r':
+                            break;
 
-                if (gLen + 2 >= TEXT_SZ) {
-                    dump ();
+                        case '\n':
+                        case 0:
+                            dump ();
+                            break;
+
+                        default:
+                            gText[gLen++] = c;
+                            break;
+                    }
+
+                    if (gLen + 2 >= TEXT_SZ) {
+                        dump ();
+                    }
                 }
             }
             ret = analyze ();
