@@ -19,7 +19,7 @@
 #define  BUFF_SZ            256
 #define  PATH_SZ            1024
 #define  NAME_SZ            PATH_SZ - TIME_SZ - 1
-#define  TEXT_SZ            2048
+#define  TEXT_SZ            32768
 
 typedef struct queueItemStr {
     const char *msg;
@@ -317,6 +317,10 @@ int main (int argc, char **argv) {
                     default:
                         gText[gLen++] = c;
                         break;
+                }
+
+                if (gLen + 2 >= TEXT_SZ) {
+                    dump ();
                 }
             }
             ret = analyze ();
